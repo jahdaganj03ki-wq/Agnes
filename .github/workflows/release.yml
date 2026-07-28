@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Setup Backend
+        run: |
+          pip install -r backend/requirements.txt
+          python -m backend.app.services.skill_extractor
+
+      - name: Run Integration Tests
+        env:
+          AGNES_API_KEY: ${{ secrets.AGNES_API_KEY }}
+        run: |
+          pip install pytest pytest-asyncio httpx
+          cd backend
+          python -m pytest tests/ -v
+
+      - name: Package Release
+        run: |
+          mkdir -p release/backend release/frontend
+          cp -r backend/app release/backend/
+          cp -r backend/skills release/backend/
+          cp backend/requirements.txt release/backend/
+          cp -r frontend/dist release/frontend/
+          cp -r frontend/public release/frontend/
+          cat > release/start.sh << 'EOF'
+          #!/usr/bin/env bash
+          cd "$(dirname "$0")"
+          pip install -r backend/requirements.txt
+          cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+          EOF
+          chmod +x release/start.sh
+          tar czf agnes-release.tar.gz release/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agnes-release
+          path: agnes-release.tar.gz
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: agnes-release.tar.gz
