@@ -1,4 +1,6 @@
 import logging
+import os
+import threading
 import time
 
 from openai import OpenAI
@@ -7,18 +9,32 @@ from backend.app.config import settings
 
 logger = logging.getLogger("agnes.prompt_enhancer")
 
-client = OpenAI(
-    api_key=settings.agnes_api_key,
-    base_url="https://apihub.agnes-ai.com/v1",
-)
+_client: OpenAI | None = None
+_client_lock = threading.Lock()
+
+
+def _get_client() -> OpenAI:
+    """Lazy-Initialized OpenAI-Client (nicht mehr auf Modulebene)."""
+    global _client
+    if _client is None:
+        with _client_lock:
+            if _client is None:
+                api_key = settings.agnes_api_key or os.environ.get("OPENAI_API_KEY")
+                if not api_key:
+                    raise RuntimeError("AGNES_API_KEY not configured")
+                _client = OpenAI(
+                    api_key=api_key,
+                    base_url="https://apihub.agnes-ai.com/v1",
+                )
+    return _client
 
 
 def enhance(system_prompt: str, user_prompt: str) -> str:
-    if not settings.agnes_api_key:
+    if not settings.agnes_api_key and not os.environ.get("OPENAI_API_KEY"):
         raise RuntimeError("AGNES_API_KEY not configured")
 
     start = time.time()
-    response = client.chat.completions.create(
+    response = _get_client().chat.completions.create(
         model="agnes-2.0-flash",
         messages=[
             {"role": "system", "content": system_prompt},

@@ -66,11 +66,12 @@ def load_key() -> str | None:
 
 
 def save_key(key: str) -> None:
-    """Speichert API-Key in config.json."""
+    """Speichert API-Key in config.json und setzt beide Env-Vars."""
     path = get_config_path()
     with open(path, "w", encoding="utf-8") as f:
         json.dump({"agnes_api_key": key}, f)
     os.environ["AGNES_API_KEY"] = key
+    os.environ["OPENAI_API_KEY"] = key
 
 
 def show_key_dialog() -> str | None:
