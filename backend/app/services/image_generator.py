@@ -19,10 +19,15 @@ def generate(
     if not settings.agnes_api_key:
         raise RuntimeError("AGNES_API_KEY not configured")
 
+    # Image strength: 0.0 = max preservation (barely change), 1.0 = full regeneration
+    # 0.6-0.8 offers a balance: edits targeted areas while mostly preserving the original
+    image_strength = 0.65
+
     body: dict = {
         "model": "agnes-image-2.1-flash",
         "prompt": prompt,
         "ratio": aspect_ratio,
+        "strength": image_strength,
         "extra_body": {
             "response_format": "url",
         },

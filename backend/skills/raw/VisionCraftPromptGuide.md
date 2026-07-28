@@ -1,24 +1,53 @@
-# VisionCraft Prompt Guide
+# VisionCraft Prompt Guide — Image-to-Image Preservation
 
-## Prompting Best Practices
+## The Preservation Principle
 
-### Image Prompts (agnes-image-2.1-flash)
+When editing an existing image, the model MUST understand:
+- The original image is perfect except for ONE specific change
+- Everything else must remain IDENTICAL
 
-Recommended structure:
+## Prompt Engineering for Image Models
+
+### Critical Rules
+
+1. **Describe the original first**: Before saying what to change, describe what exists
+2. **"Change ONLY" pattern**: Always start the edit instruction with these exact words
+3. **"PRESERVE" section**: List every element that must not change
+4. **"NEGATIVE INSTRUCTION"**: Add explicit "do not change" directives
+
+### Enhanced Prompt Template
+
 ```
-[Subject] + [Scene / Environment] + [Style] + [Lighting] + [Composition] + [Quality]
+ORIGINAL: [subject] in [setting], wearing [clothing], [lighting], [composition]
+
+EDIT: Change ONLY [specific element(s)].
+PRESERVE:
+- Face and identity
+- Pose and body position
+- Background and setting
+- Lighting and shadows
+- All other clothing and accessories
+- Image composition and style
+
+DO NOT CHANGE: [anything not in the edit instruction]
 ```
 
-### Image-to-Image
+### Why Current Prompts Fail
 
-Always state what to change and what to preserve:
+Bad prompt: `"A person with black clothes"` → model generates a NEW person with black clothes
+
+Good prompt: 
 ```
-[What to change] + [New style/scene] + [Elements to add/remove] + [What to preserve]
+"ORIGINAL IMAGE shows a person in a room wearing a red shirt and jeans. 
+EDIT INSTRUCTION: Change ONLY the shirt color from red to black.
+PRESERVE: face, hair, pose, background, jeans, shoes, lighting, composition exactly.
+DO NOT CHANGE anything except the shirt color."
 ```
 
-### General Tips
+→ Model understands it should keep EVERYTHING and only recolor the shirt
 
-- Prefer specific over generic
-- Name a camera/lens for photos
-- For image-to-image, preserve original composition
-- Add negative prompts for videos
+## Preserving Composition
+
+- Always describe: background details, object positions, framing
+- Always specify: what NOT to generate (no new objects, no new people)
+- Use preservation ratio: 80% of the prompt should describe what to KEEP, 20% what to CHANGE
