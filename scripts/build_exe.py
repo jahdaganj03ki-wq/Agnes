@@ -29,7 +29,7 @@ def run_pyinstaller():
         "--clean",
         "--noconfirm",
         # Backend-Module
-        "--add-data", f"{project_root / 'backend' / 'app'};app",
+        "--add-data", f"{project_root / 'backend'};backend",
         # Frontend Dist
         "--add-data", f"{project_root / 'frontend' / 'dist'};frontend/dist",
         # Skills (extracted)

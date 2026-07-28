@@ -116,7 +116,7 @@ def run_server():
     """Startet uvicorn (blockiert bis Programmende)."""
     try:
         uvicorn.run(
-            "app.main:app",
+            "backend.app.main:app",
             host="0.0.0.0",
             port=8000,
             log_level="info",
