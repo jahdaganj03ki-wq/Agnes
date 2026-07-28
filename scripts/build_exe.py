@@ -67,7 +67,7 @@ def run_pyinstaller():
 
     try:
         PyInstaller.__main__.run(args)
-        print("[BUILD] ✓ Build erfolgreich!")
+        print("[BUILD] [OK] Build erfolgreich!")
     except SystemExit as e:
         if e.code != 0:
             raise RuntimeError(f"PyInstaller exited with code {e.code}")
@@ -81,10 +81,10 @@ def verify_build():
     exe_path = project_root / "dist" / "AgnesAI.exe"
     if exe_path.is_file():
         size_mb = exe_path.stat().st_size / (1024 * 1024)
-        print(f"[BUILD] ✓ AgnesAI.exe erstellt ({size_mb:.1f} MB)")
+        print(f"[BUILD] [OK] AgnesAI.exe erstellt ({size_mb:.1f} MB)")
         return True
     else:
-        print("[BUILD] ✗ AgnesAI.exe NICHT gefunden!")
+        print("[BUILD] [FAIL] AgnesAI.exe NICHT gefunden!")
         return False
 
 
