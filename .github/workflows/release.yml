@@ -95,6 +95,7 @@ jobs:
             - **Frontend**: React 19 + Vite + Tailwind CSS 4 (dark theme)
             - **Installer**: `scripts/install.sh` (Python/Node-Setup + Build)
             - **Konfiguration**: `.env.example`
+            - **Windows**: `AgnesAI.exe` (standalone, embedded WebView2)
 
             ### Installation (Linux/macOS)
             ```
@@ -103,6 +104,11 @@ jobs:
             bash scripts/install.sh
             ./start.sh
             ```
+
+            ### Windows
+            1. `AgnesAI.exe` herunterladen
+            2. Doppelklick → beim ersten Start API-Key eingeben
+            3. App läuft komplett im eigenen Fenster (WebView2)
 
   build-exe:
     runs-on: windows-latest

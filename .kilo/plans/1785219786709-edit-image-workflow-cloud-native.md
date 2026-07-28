@@ -557,34 +557,131 @@ result ──(new image/prompt)──→ input_ready
 
 ---
 
-## Windows .exe Build (PyInstaller)
+## Windows .exe Build (PyInstaller + WebView2)
 
 ### Ziel
-Einzelne `AgnesAI.exe` für Windows, die:
-- Backend (FastAPI + uvicorn) + Frontend (dist/) + Skills bündelt
-- `AGNES_API_KEY` aus Umgebungsvariable liest
-- Browser auf `http://localhost:8000` öffnet
-- Konsolenfenster zeigt (Logs sichtbar, `--console`)
+Einzelne `AgnesAI.exe` für Windows, die **alles im eigenen Fenster** ausführt (kein externer Browser):
+- Native Windows-Fenster mit **embedded WebView2** (via `pywebview`)
+- React-Frontend wird im eingebetteten Browser gerendert (`http://localhost:8000`)
+- **Bei erstem Start: API-Key-Dialog** (Tkinter, keine extra Deps)
+- Key wird in `config.json` **neben der .exe** gespeichert
+- Bei vorhandenem Key: direkter Start → eingebetteter Browser lädt UI
+- Konsolenfenster zeigt Logs (`--console`)
 
 ### Neuer Code
 
 **`scripts/agnes_launcher.py`** — Entrypoint für PyInstaller
 ```python
-import sys, os, threading, time, webbrowser, uvicorn
+import sys
+import os
+import json
+import threading
+import time
+import uvicorn
+import tkinter as tk
+from tkinter import messagebox
+import webview  # pywebview → nutzt WebView2 auf Windows
 
 if hasattr(sys, '_MEIPASS'):
     sys.path.insert(0, sys._MEIPASS)
 
-def open_browser():
+CONFIG_FILE = "config.json"
+
+def get_config_path():
+    """Pfad zur config.json neben der .exe (oder im Working Dir)."""
+    if getattr(sys, 'frozen', False):
+        return os.path.join(os.path.dirname(sys.executable), CONFIG_FILE)
+    return os.path.join(os.getcwd(), CONFIG_FILE)
+
+def load_key():
+    path = get_config_path()
+    if os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f).get("agnes_api_key")
+        except Exception:
+            pass
+    return None
+
+def save_key(key):
+    path = get_config_path()
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"agnes_api_key": key}, f)
+    os.environ["AGNES_API_KEY"] = key
+
+def show_key_dialog():
+    """Tkinter-Dialog für API-Key-Eingabe (läuft vor webview-Start)."""
+    root = tk.Tk()
+    root.title("Agnes AI — API Key")
+    root.geometry("460x220")
+    root.resizable(False, False)
+    root.eval('tk::PlaceWindow . center')
+
+    tk.Label(root, text="Agnes AI API Key eingeben:", font=("Segoe UI", 10)).pack(pady=(20, 5))
+    tk.Label(root, text="Format: sk-...", font=("Segoe UI", 8), fg="gray").pack()
+
+    entry = tk.Entry(root, width=55, show="•")
+    entry.pack(pady=10, padx=20)
+    entry.focus()
+
+    result = {"key": None}
+
+    def on_save():
+        key = entry.get().strip()
+        if not key.startswith("sk-"):
+            messagebox.showerror("Ungültiger Key", "API-Key muss mit 'sk-' beginnen.")
+            return
+        save_key(key)
+        result["key"] = key
+        root.destroy()
+
+    def on_cancel():
+        root.destroy()
+
+    btn_frame = tk.Frame(root)
+    btn_frame.pack(pady=15)
+    tk.Button(btn_frame, text="Speichern & Starten", command=on_save, width=18, bg="#0078d4", fg="white").pack(side=tk.LEFT, padx=5)
+    tk.Button(btn_frame, text="Abbrechen", command=on_cancel, width=18).pack(side=tk.LEFT, padx=5)
+
+    root.protocol("WM_DELETE_WINDOW", on_cancel)
+    root.mainloop()
+    return result["key"]
+
+def run_server():
+    """Startet uvicorn im Hintergrund-Thread."""
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, log_level="info", access_log=False)
+
+def main():
+    # 1. Key laden (Env > config.json)
+    api_key = os.environ.get("AGNES_API_KEY") or load_key()
+
+    # 2. Falls kein Key → Dialog zeigen
+    if not api_key:
+        api_key = show_key_dialog()
+        if not api_key:
+            return  # User hat Abbrechen geklickt
+
+    # 3. Server im Hintergrund starten
+    print("[INFO] Starte Agnes AI Server auf http://localhost:8000")
+    server_thread = threading.Thread(target=run_server, daemon=True)
+    server_thread.start()
+
+    # 4. Warten bis Server ready
     time.sleep(1.5)
-    webbrowser.open("http://localhost:8000")
+
+    # 5. WebView2-Fenster erstellen und UI laden
+    window = webview.create_window(
+        "Agnes AI — Edit Image",
+        "http://localhost:8000",
+        width=1200,
+        height=800,
+        min_size=(900, 600),
+        text_select=True,
+    )
+    webview.start(debug=False)  # Blockiert bis Fenster geschlossen
 
 if __name__ == "__main__":
-    if not os.environ.get("AGNES_API_KEY"):
-        print("[ERROR] AGNES_API_KEY nicht gesetzt!")
-        sys.exit(1)
-    threading.Thread(target=open_browser, daemon=True).start()
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000)
+    main()
 ```
 
 **`scripts/build_exe.py`** — PyInstaller-Aufruf via API
@@ -594,7 +691,7 @@ import PyInstaller.__main__
 PyInstaller.__main__.run([
     'scripts/agnes_launcher.py',
     '--onefile',
-    '--console',
+    '--console',          # Logs sichtbar lassen
     '--name', 'AgnesAI',
     '--add-data', 'backend/app;app',
     '--add-data', 'frontend/dist;frontend/dist',
@@ -602,62 +699,79 @@ PyInstaller.__main__.run([
     '--hidden-import', 'backend.app.config',
     '--hidden-import', 'backend.app.main',
     '--hidden-import', 'backend.app.routers.edit_image',
+    '--hidden-import', 'backend.app.routers.settings',
     '--hidden-import', 'backend.app.services.pipeline',
     '--hidden-import', 'backend.app.services.prompt_enhancer',
     '--hidden-import', 'backend.app.services.image_generator',
     '--hidden-import', 'backend.app.services.skill_loader',
+    '--hidden-import', 'backend.app.services.skill_extractor',
+    '--hidden-import', 'backend.app.models.schemas',
+    '--hidden-import', 'backend.app.logging_config',
+    '--hidden-import', 'tkinter',
+    '--hidden-import', 'tkinter.messagebox',
+    '--hidden-import', 'webview',
+    '--hidden-import', 'webview.platforms.edgechromium',  # WebView2 Backend
 ])
+```
+
+**Neue Abhängigkeit**: `requirements.txt` um `pywebview` ergänzen:
+```
+pywebview>=5.0
 ```
 
 ### Release-Workflow-Erweiterung (`.github/workflows/release.yml`)
 
-Neuer Job `build-exe` parallel zum `build`-Job:
-
+`build-exe` Job installiert zusätzlich `pywebview`:
 ```yaml
-build-exe:
-  runs-on: windows-latest
-  steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-python@v5
-      with: { python-version: "3.12", cache: "pip", cache-dependency-path: backend/requirements.txt }
-    - uses: actions/setup-node@v4
-      with: { node-version: "22", cache: "npm", cache-dependency-path: frontend/package-lock.json }
-    - working-directory: frontend
-      run: |
-        npm ci
-        npm run build
-    - run: pip install -r backend/requirements.txt
-    - run: python backend/app/services/skill_extractor.py
-    - run: pip install pyinstaller
-    - run: python scripts/build_exe.py
-    - uses: actions/upload-artifact@v4
-      with:
-        name: AgnesAI-exe
-        path: dist/AgnesAI.exe
-```
-
-Im `Package Release`-Schritt: `AgnesAI.exe` herunterladen und in `agnes-release/` legen.
-
-### .gitignore-Ergänzung
-```
-# PyInstaller
-dist/
-build/
-*.spec
+- name: Install Dependencies
+  run: |
+    pip install -r backend/requirements.txt
+    pip install pyinstaller pywebview
 ```
 
 ### Validierung
 1. Tag pushen: `git tag v0.1.0 && git push origin v0.1.0`
 2. Workflow wartet auf `build-exe` (windows-latest)
 3. Artefakt `AgnesAI.exe` herunterladen
-4. Auf Windows: `set AGNES_API_KEY=sk-... && AgnesAI.exe`
-5. Browser öffnet `http://localhost:8000`, UI lädt
+4. Auf Windows: **Doppelklick** auf `AgnesAI.exe`
+   - Beim ersten Start: Dialog öffnet sich → Key eingeben → Speichern
+   - Key wird in `config.json` neben der .exe gespeichert
+   - Native Fenster öffnet sich, lädt `http://localhost:8000` im eingebetteten WebView2
+   - React-UI läuft **vollständig im App-Fenster** (kein externer Browser)
+5. Weitere Starts: Kein Dialog, direkter Start (Key aus config.json)
 
 ### Risiken & Mitigation
 | Risiko | Mitigation |
 |--------|-----------|
-| PyInstaller findet versteckte Imports nicht | Explizite `--hidden-import` für alle Backend-Module |
+| PyInstaller findet versteckte Imports nicht | Explizite `--hidden-import` für alle Backend-Module + `tkinter` + `webview` + `webview.platforms.edgechromium` |
+| Tkinter nicht verfügbar | Ist Teil der Python-Stdlib, immer dabei |
+| config.json Schreibrechte | Neben .exe im User-Ordner (Downloads/Desktop) problemlos |
 | `skill_extractor` nicht gelaufen | Build-Script ruft es explizit vor PyInstaller auf |
-| Browser öffnet sich zu früh | `time.sleep(1.5)` + Daemon-Thread |
+| WebView2 Runtime fehlt | `pywebview` zeigt Installations-Dialog an; Windows 10/11 haben es meist vorinstalliert |
+| Einfrierender Server bei Fenster-Schluss | Daemon-Thread (`daemon=True`) → Prozess endet mit Hauptthread; für clean shutdown später `atexit`/Signal-Handler ergänzen |
+| Mehrfach-Start (Doppelklick) | Optional: Port-Check (8000) vor Server-Start → existierendes Fenster fokussieren (später) |
+| Console vs. Windowed Build | Aktuell `--console` (Logs sichtbar); für Release `--windowed` Variante ergänzen |
+
+---
+
+## Finale Design-Entscheidungen (Implementierungsfertig)
+
+| Bereich | Entscheidung | Begründung |
+|---------|--------------|------------|
+| **Entrypoint** | `scripts/agnes_launcher.py` (Tkinter-Dialog → WebView2) | Einzelne .exe, keine externen Browser |
+| **API-Key Speicher** | `config.json` neben .exe (portabel) + Env-Var Fallback | Einfach, portable, CI-freundlich |
+| **Backend** | FastAPI + uvicorn im Daemon-Thread (`daemon=True`) | Einfache Prozess-Lebensdauer, kein Signal-Handling nötig |
+| **Frontend** | React build (Vite) → statische Files → `webview.create_window(url)` | Native Look, volle React-Funktionalität |
+| **PyInstaller** | `--onefile --console --name AgnesAI` | Debugging via Console-Logs; Release später `--windowed` |
+| **Hidden Imports** | Alle Backend-Module + `tkinter` + `webview` + `webview.platforms.edgechromium` | PyInstaller findet WebView2-Backend nicht automatisch |
+| **Requirements** | `pywebview>=5.0` zu `backend/requirements.txt` | WebView2 auf Windows |
+| **Release Workflow** | Parallel: `build` (ubuntu) + `build-exe` (windows-latest) | Schnelle CI, parallele Artefakte |
+| **Single Instance** | Port-Check (8000) → existierende Instanz fokussieren (optional, v2) | MVP: erlauben; Nutzer sieht bei 2. Klick "Address already in use" |
+| **Graceful Shutdown** | Daemon-Thread; Prozess-Exit beim Fenster-Schluss | Einfach, robust; Cleanup in v2 nachrüsten |
+
+---
+
+**Status: Implementation-ready** ✅
+| WebView2 Runtime fehlt | Windows 10/11 hat WebView2 meist vorinstalliert; sonst Fallback-Dialog via `webview` |
 | API-Key fehlt | Launcher prüft `AGNES_API_KEY` vor Start, klarer Error-Text |
 | Windows Runner in CI langsam | Job läuft parallel zu `build`, nur ~60-90s extra |

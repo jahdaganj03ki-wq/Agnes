@@ -59,6 +59,14 @@ def run_pyinstaller():
         # OpenAI SDK
         "--hidden-import", "openai",
         "--hidden-import", "httpx",
+        # GUI dependencies
+        "--hidden-import", "tkinter",
+        "--hidden-import", "tkinter.messagebox",
+        # WebView2 / pywebview
+        "--hidden-import", "webview",
+        "--hidden-import", "webview.platforms.edgechromium",
+        "--hidden-import", "webview.js.css",
+        "--hidden-import", "webview.js.api",
     ]
 
     print("[BUILD] Starte PyInstaller...")
