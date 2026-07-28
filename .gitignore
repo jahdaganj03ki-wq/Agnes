@@ -24,6 +24,9 @@ downloaded_content/
 # Application log
 agnes.log
 
+# Generated start script
+start.sh
+
 # IDE
 .vscode/
 

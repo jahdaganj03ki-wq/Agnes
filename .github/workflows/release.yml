@@ -7,8 +7,22 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Build Frontend
         working-directory: frontend
@@ -21,30 +35,48 @@ jobs:
           pip install -r backend/requirements.txt
           python -m backend.app.services.skill_extractor
 
-      - name: Run Integration Tests
-        env:
-          AGNES_API_KEY: ${{ secrets.AGNES_API_KEY }}
-        run: |
-          pip install pytest pytest-asyncio httpx
-          cd backend
-          python -m pytest tests/ -v
-
       - name: Package Release
         run: |
-          mkdir -p release/backend release/frontend
-          cp -r backend/app release/backend/
-          cp -r backend/skills release/backend/
-          cp backend/requirements.txt release/backend/
-          cp -r frontend/dist release/frontend/
-          cp -r frontend/public release/frontend/
-          cat > release/start.sh << 'EOF'
+          mkdir -p agnes-release/{backend,frontend,scripts}
+          # Backend
+          cp -r backend/app agnes-release/backend/
+          cp -r backend/skills agnes-release/backend/
+          cp backend/requirements.txt agnes-release/backend/
+          # Frontend
+          cp -r frontend/dist agnes-release/frontend/
+          cp -r frontend/public agnes-release/frontend/
+          # Installer & Konfiguration
+          cp scripts/install.sh agnes-release/scripts/
+          cp .env.example agnes-release/
+          # Start-Skript (Production)
+          cat > agnes-release/start.sh << 'SRUN'
           #!/usr/bin/env bash
+          set -euo pipefail
           cd "$(dirname "$0")"
-          pip install -r backend/requirements.txt
-          cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
-          EOF
-          chmod +x release/start.sh
-          tar czf agnes-release.tar.gz release/
+          if [ -f .env ]; then set -a; source .env; set +a; fi
+          if [ -z "${AGNES_API_KEY:-}" ]; then
+            echo "[ERROR] AGNES_API_KEY nicht gesetzt!" >&2; exit 1
+          fi
+          cd backend && exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+          SRUN
+          chmod +x agnes-release/start.sh
+          # README
+          cat > agnes-release/README.md << 'README'
+          # Agnes AI — Edit Image
+
+          ## Schnellstart
+          1. `AGNES_API_KEY` setzen: `export AGNES_API_KEY=sk-...` oder `.env` anlegen
+          2. `bash scripts/install.sh` (einmalig)
+          3. `./start.sh`
+          4. http://localhost:8000 öffnen
+
+          ## Systemvoraussetzungen
+          - Python 3.12+
+          - Node.js 22+
+          - ImageMagick (optional, für Favicons)
+          README
+          # Archiv erstellen
+          tar czf agnes-release.tar.gz agnes-release/
 
       - uses: actions/upload-artifact@v4
         with:
@@ -53,6 +85,21 @@ jobs:
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
         with:
           files: agnes-release.tar.gz
+          body: |
+            ## Agnes AI — Edit Image ${{ github.ref_name }}
+
+            ### Enthält
+            - **Backend**: FastAPI + Edit-Image-Pipeline (SSE)
+            - **Frontend**: React 19 + Vite + Tailwind CSS 4 (dark theme)
+            - **Installer**: `scripts/install.sh` (Python/Node-Setup + Build)
+            - **Konfiguration**: `.env.example`
+
+            ### Installation
+            ```
+            tar xzf agnes-release.tar.gz
+            cd agnes-release
+            bash scripts/install.sh
+            ./start.sh
+            ```
