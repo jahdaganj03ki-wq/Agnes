@@ -17,8 +17,9 @@ jobs:
           cache: "pip"
           cache-dependency-path: backend/requirements.txt
       - run: pip install -r backend/requirements.txt
-      - run: python -m pytest backend/tests/ -v
       - run: python -m backend.app.services.skill_extractor
+      - name: Run tests
+        run: python -m pytest backend/tests/ -v
       - name: Check extracted skills
         run: test -d backend/skills/extracted && ls backend/skills/extracted/
 
