@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from backend.app.config import settings
 from backend.app.logging_config import setup_logging
 from backend.app.routers.edit_image import router as edit_image_router
+from backend.app.routers.settings import router as settings_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -26,6 +27,7 @@ app.add_middleware(
 )
 
 app.include_router(edit_image_router, prefix="/api")
+app.include_router(settings_router, prefix="/api")
 
 frontend_dist = os.path.join(os.path.dirname(__file__), "../../frontend/dist")
 if os.path.isdir(frontend_dist):

@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 const navItems = [
   { label: 'Home', icon: '🏠', path: '/' },
   { label: 'Edit Image', icon: '🖌️', path: '/edit' },
+  { label: 'Settings', icon: '⚙️', path: '/settings' },
 ]
 
 export default function Sidebar() {

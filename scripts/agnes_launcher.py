@@ -160,6 +160,7 @@ def main():
     # 3. Env-Vars immer setzen (auch wenn aus config.json geladen)
     os.environ["AGNES_API_KEY"] = api_key
     os.environ["OPENAI_API_KEY"] = api_key
+    os.environ["AGNES_CONFIG_DIR"] = os.path.dirname(get_config_path())
 
     # 4. Server im Hintergrund starten
     logging.info("Starte Agnes AI Server auf http://localhost:8000")
