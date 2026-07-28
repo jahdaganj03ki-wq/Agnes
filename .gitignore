@@ -27,6 +27,10 @@ agnes.log
 # Generated start script
 start.sh
 
+# PyInstaller
+build/
+*.spec
+
 # IDE
 .vscode/
 

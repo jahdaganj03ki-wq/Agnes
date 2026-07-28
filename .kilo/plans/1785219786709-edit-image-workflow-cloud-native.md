@@ -17,9 +17,12 @@
 | Pipeline-Steuerung | Backend orchestriert (1 Endpoint + SSE) | Minimale Netzwerk-Latenz, progressive UI-Updates |
 | Bild-Upload | Client-seitige Canvas-Kompression (max 2048px, JPEG 0.85) | Garantiert <4MB Base64, kein externer Host nötig |
 | RetryState | Frontend-Cache (React State + localStorage) | Backend bleibt stateless |
-| API-Key | `AGNES_API_KEY` Environment-Variable | Frontend hat nie Zugriff, CI via GitHub Secrets |
+| API-Key | `AGNES_API_KEY` Env-Var + **config.json** (App-Verzeichnis) | Fallback: Env → config.json → .env; Frontend nie Zugriff |
 | Logging | `agnes.log` (Projektwurzel, Rotating 5MB×3, kein accent) | `RotatingFileHandler`, Format: `[Datum] [LEVEL] [Modul] Message` |
 | Modelle | `agnes-2.0-flash` + `agnes-image-2.1-flash` | Über öffentliche API kostenlos nutzbar (Free: 20 RPM) |
+| Settings-Storage | `config.json` neben Exe / im Projekt-Root | Einfaches JSON, funktioniert Dev + Prod + .exe |
+| Settings-UI | Sidebar-Zahnrad → Modal | Kompakt, konsistent mit Agnes AI Look |
+| Key-Validierung | `GET /v1/models` beim Speichern | Sofortiges Feedback, ob Key gültig |
 
 ## Projektstruktur
 
@@ -42,7 +45,8 @@
 │   │   │   └── pipeline.py          # Orchestriert alle 3 Schritte + SSE-Generator
 │   │   ├── routers/
 │   │   │   ├── __init__.py
-│   │   │   └── edit_image.py        # POST /api/edit-image (SSE)
+│   │   │   ├── edit_image.py        # POST /api/edit-image (SSE)
+│   │   │   └── settings.py          # GET/POST /api/settings (API-Key Management)
 │   │   └── logging_config.py        # RotatingFileHandler Setup
 │   ├── skills/
 │   │   ├── raw/                     # [MIGRIERT] Bestehende .md-Skill-Dateien
@@ -345,7 +349,30 @@ jobs:
           include-hidden-files: true
 ```
 
-## Implementierungs-Schritte
+### Schritt 12: API-Key Settings (Neu)
+
+**Backend:**
+- `backend/app/config.py`: `Settings`-Klasse erweitert um `config_file_path` (Property), Methoden `load_config()` / `save_config(key)` → liest/schreibt `config.json` im Arbeitsverzeichnis (Dev: Projekt-Root, Exe: `sys._MEIPASS`/Exe-Verzeichnis). `AGNES_API_KEY` Property prüft: Env → config.json → Default.
+- `backend/app/routers/settings.py`: 
+  - `GET /api/settings` → `{ "has_key": bool }` (Key selbst nie zurückgeben)
+  - `POST /api/settings` → Body: `{ "api_key": "sk-..." }`, validiert via `GET https://apihub.agnes-ai.com/v1/models` (Auth: Bearer Key), bei 200 speichert in config.json, returned `{ "ok": true }`, bei 401/403 `{ "ok": false, "error": "Invalid API key" }`.
+- `backend/app/main.py`: Router inkludieren (`app.include_router(settings_router, prefix="/api")`).
+
+**Frontend:**
+- `src/components/SettingsModal.tsx`: Modal mit Passwort-Feld (`type="password"`), Toggle-Button (Show/Hide), "Testen & Speichern"-Button. Zeigt Loading + Ergebnis (Grün/Rot).
+- `src/hooks/useSettings.ts`: `fetchSettings()` (GET), `saveSettings(key)` (POST + Validierung), State `{ hasKey, loading, error }`.
+- `src/components/Sidebar.tsx`: Zahnrad-Icon (`⚙️`) oben/rechts → `onClick` öffnet Modal.
+- `src/App.tsx`: `SettingsProvider` (Context) wrappt App, lädt `hasKey` beim Mount.
+
+**Config-Datei (`config.json`):**
+```json
+{ "agnes_api_key": "sk-..." }
+```
+Git-ignoriert (`.gitignore` ergänzt).
+
+**Tests:**
+- Backend: `test_settings_router.py` (mockt `httpx.AsyncClient.get` für Validierung)
+- Frontend: `SettingsModal.test.tsx` (Mock `fetch`, prüft Modal-Öffnen/Validierung)
 
 ### Schritt 1: Projekt-Cleanup
 - Lösche: `AgnesWindows.sln`, `Directory.Build.props`
@@ -527,3 +554,110 @@ result ──(new image/prompt)──→ input_ready
 | SSE-Stream nicht korrekt verarbeitet | Backend-Test mit `httpx.AsyncClient.stream()`, Frontend-Test mit `fetch`/`ReadableStream`-Mock |
 | Production Serving: Frontend vor API gemountet | API-Router VOR StaticFiles mounten (Reihenfolge in `main.py`) |
 | 429 Rate-Limit blockiert CI | Retry-Logik im Backend, CI-Tests mit `@pytest.mark.slow` markieren, nicht im critical path |
+
+---
+
+## Windows .exe Build (PyInstaller)
+
+### Ziel
+Einzelne `AgnesAI.exe` für Windows, die:
+- Backend (FastAPI + uvicorn) + Frontend (dist/) + Skills bündelt
+- `AGNES_API_KEY` aus Umgebungsvariable liest
+- Browser auf `http://localhost:8000` öffnet
+- Konsolenfenster zeigt (Logs sichtbar, `--console`)
+
+### Neuer Code
+
+**`scripts/agnes_launcher.py`** — Entrypoint für PyInstaller
+```python
+import sys, os, threading, time, webbrowser, uvicorn
+
+if hasattr(sys, '_MEIPASS'):
+    sys.path.insert(0, sys._MEIPASS)
+
+def open_browser():
+    time.sleep(1.5)
+    webbrowser.open("http://localhost:8000")
+
+if __name__ == "__main__":
+    if not os.environ.get("AGNES_API_KEY"):
+        print("[ERROR] AGNES_API_KEY nicht gesetzt!")
+        sys.exit(1)
+    threading.Thread(target=open_browser, daemon=True).start()
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000)
+```
+
+**`scripts/build_exe.py`** — PyInstaller-Aufruf via API
+```python
+import PyInstaller.__main__
+
+PyInstaller.__main__.run([
+    'scripts/agnes_launcher.py',
+    '--onefile',
+    '--console',
+    '--name', 'AgnesAI',
+    '--add-data', 'backend/app;app',
+    '--add-data', 'frontend/dist;frontend/dist',
+    '--add-data', 'backend/skills;skills',
+    '--hidden-import', 'backend.app.config',
+    '--hidden-import', 'backend.app.main',
+    '--hidden-import', 'backend.app.routers.edit_image',
+    '--hidden-import', 'backend.app.services.pipeline',
+    '--hidden-import', 'backend.app.services.prompt_enhancer',
+    '--hidden-import', 'backend.app.services.image_generator',
+    '--hidden-import', 'backend.app.services.skill_loader',
+])
+```
+
+### Release-Workflow-Erweiterung (`.github/workflows/release.yml`)
+
+Neuer Job `build-exe` parallel zum `build`-Job:
+
+```yaml
+build-exe:
+  runs-on: windows-latest
+  steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with: { python-version: "3.12", cache: "pip", cache-dependency-path: backend/requirements.txt }
+    - uses: actions/setup-node@v4
+      with: { node-version: "22", cache: "npm", cache-dependency-path: frontend/package-lock.json }
+    - working-directory: frontend
+      run: |
+        npm ci
+        npm run build
+    - run: pip install -r backend/requirements.txt
+    - run: python backend/app/services/skill_extractor.py
+    - run: pip install pyinstaller
+    - run: python scripts/build_exe.py
+    - uses: actions/upload-artifact@v4
+      with:
+        name: AgnesAI-exe
+        path: dist/AgnesAI.exe
+```
+
+Im `Package Release`-Schritt: `AgnesAI.exe` herunterladen und in `agnes-release/` legen.
+
+### .gitignore-Ergänzung
+```
+# PyInstaller
+dist/
+build/
+*.spec
+```
+
+### Validierung
+1. Tag pushen: `git tag v0.1.0 && git push origin v0.1.0`
+2. Workflow wartet auf `build-exe` (windows-latest)
+3. Artefakt `AgnesAI.exe` herunterladen
+4. Auf Windows: `set AGNES_API_KEY=sk-... && AgnesAI.exe`
+5. Browser öffnet `http://localhost:8000`, UI lädt
+
+### Risiken & Mitigation
+| Risiko | Mitigation |
+|--------|-----------|
+| PyInstaller findet versteckte Imports nicht | Explizite `--hidden-import` für alle Backend-Module |
+| `skill_extractor` nicht gelaufen | Build-Script ruft es explizit vor PyInstaller auf |
+| Browser öffnet sich zu früh | `time.sleep(1.5)` + Daemon-Thread |
+| API-Key fehlt | Launcher prüft `AGNES_API_KEY` vor Start, klarer Error-Text |
+| Windows Runner in CI langsam | Job läuft parallel zu `build`, nur ~60-90s extra |

@@ -96,10 +96,50 @@ jobs:
             - **Installer**: `scripts/install.sh` (Python/Node-Setup + Build)
             - **Konfiguration**: `.env.example`
 
-            ### Installation
+            ### Installation (Linux/macOS)
             ```
             tar xzf agnes-release.tar.gz
             cd agnes-release
             bash scripts/install.sh
             ./start.sh
             ```
+
+  build-exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build Frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install Dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip install pyinstaller
+
+      - name: Extract Skills
+        run: python -m backend.app.services.skill_extractor
+
+      - name: Build Windows EXE
+        run: python scripts/build_exe.py
+
+      - name: Upload EXE Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AgnesAI-exe
+          path: dist/AgnesAI.exe
