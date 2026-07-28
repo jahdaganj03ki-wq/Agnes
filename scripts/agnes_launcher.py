@@ -21,7 +21,7 @@ import webview
 
 
 if hasattr(sys, '_MEIPASS'):
-    sys.path.insert(0, sys._MEIPASS)
+    sys.path.insert(0, os.path.join(sys._MEIPASS, "backend"))
 
 CONFIG_FILE = "config.json"
 

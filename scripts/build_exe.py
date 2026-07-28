@@ -24,16 +24,19 @@ def run_pyinstaller():
     args = [
         str(launcher),
         "--onefile",
-        "--console",
+        "--windowed",
         "--name", "AgnesAI",
         "--clean",
         "--noconfirm",
         # Backend-Module
-        "--add-data", f"{project_root / 'backend' / 'app'};app",
+        "--add-data", f"{project_root / 'backend' / 'app'};backend/app",
         # Frontend Dist
         "--add-data", f"{project_root / 'frontend' / 'dist'};frontend/dist",
         # Skills (extracted)
         "--add-data", f"{project_root / 'backend' / 'skills'};skills",
+        # Force bundle FastAPI and all its submodules/data
+        "--collect-all", "fastapi",
+        "--hidden-import", "fastapi",
         # Hidden imports für Module, die PyInstaller evtl. nicht findet
         "--hidden-import", "backend.app.config",
         "--hidden-import", "backend.app.main",
@@ -53,6 +56,7 @@ def run_pyinstaller():
         "--hidden-import", "uvicorn.protocols.websockets.auto",
         "--hidden-import", "uvicorn.lifespan.on",
         "--hidden-import", "starlette.middleware.cors",
+        "--hidden-import", "starlette",
         # Pydantic v2
         "--hidden-import", "pydantic",
         "--hidden-import", "pydantic_core",

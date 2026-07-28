@@ -584,6 +584,8 @@ import webview  # pywebview → nutzt WebView2 auf Windows
 
 if hasattr(sys, '_MEIPASS'):
     sys.path.insert(0, sys._MEIPASS)
+    # _MEIPASS/backend/ enthält das kopierte backend/-Paket
+    sys.path.insert(0, os.path.join(sys._MEIPASS, "backend"))
 
 CONFIG_FILE = "config.json"
 
@@ -690,10 +692,10 @@ import PyInstaller.__main__
 
 PyInstaller.__main__.run([
     'scripts/agnes_launcher.py',
-    '--onefile',
-    '--console',          # Logs sichtbar lassen
+'--onefile',
+    '--windowed',  # Kein Konsolenfenster — saubere Desktop-App
     '--name', 'AgnesAI',
-    '--add-data', 'backend/app;app',
+    '--add-data', 'backend/app;backend',   # backend/ im Bundle behalten!
     '--add-data', 'frontend/dist;frontend/dist',
     '--add-data', 'backend/skills;skills',
     '--hidden-import', 'backend.app.config',
@@ -710,8 +712,28 @@ PyInstaller.__main__.run([
     '--hidden-import', 'tkinter',
     '--hidden-import', 'tkinter.messagebox',
     '--hidden-import', 'webview',
-    '--hidden-import', 'webview.platforms.edgechromium',  # WebView2 Backend
-])
+'--hidden-import', 'webview.platforms.edgechromium', # WebView2 Backend
+        '--hidden-import', 'webview.js.css',
+        '--hidden-import', 'webview.js.api',
+        # FastAPI + Starlette + Uvicorn explizit (sonst: ModuleNotFoundError)
+        '--hidden-import', 'fastapi',
+        '--hidden-import', 'fastapi.responses',
+        '--hidden-import', 'fastapi.routing',
+        '--hidden-import', 'starlette',
+        '--hidden-import', 'starlette.middleware',
+        '--hidden-import', 'starlette.middleware.cors',
+        '--hidden-import', 'uvicorn',
+        '--hidden-import', 'uvicorn.logging',
+        '--hidden-import', 'uvicorn.loops.auto',
+        '--hidden-import', 'uvicorn.protocols.http.auto',
+        '--hidden-import', 'uvicorn.protocols.websockets.auto',
+        '--hidden-import', 'uvicorn.lifespan.on',
+        '--hidden-import', 'pydantic',
+        '--hidden-import', 'pydantic_core',
+        '--hidden-import', 'openai',
+        '--hidden-import', 'httpx',
+        '--collect-all', 'fastapi',
+    ])
 ```
 
 **Neue Abhängigkeit**: `requirements.txt` um `pywebview` ergänzen:
@@ -743,7 +765,7 @@ pywebview>=5.0
 ### Risiken & Mitigation
 | Risiko | Mitigation |
 |--------|-----------|
-| PyInstaller findet versteckte Imports nicht | Explizite `--hidden-import` für alle Backend-Module + `tkinter` + `webview` + `webview.platforms.edgechromium` |
+| PyInstaller findet versteckte Imports nicht | Explizite `--hidden-import` für alle Backend-Module + `tkinter` + `webview` + `fastapi`/`starlette`/`uvicorn` + `--collect-all fastapi` |
 | Tkinter nicht verfügbar | Ist Teil der Python-Stdlib, immer dabei |
 | config.json Schreibrechte | Neben .exe im User-Ordner (Downloads/Desktop) problemlos |
 | `skill_extractor` nicht gelaufen | Build-Script ruft es explizit vor PyInstaller auf |
@@ -762,7 +784,7 @@ pywebview>=5.0
 | **API-Key Speicher** | `config.json` neben .exe (portabel) + Env-Var Fallback | Einfach, portable, CI-freundlich |
 | **Backend** | FastAPI + uvicorn im Daemon-Thread (`daemon=True`) | Einfache Prozess-Lebensdauer, kein Signal-Handling nötig |
 | **Frontend** | React build (Vite) → statische Files → `webview.create_window(url)` | Native Look, volle React-Funktionalität |
-| **PyInstaller** | `--onefile --console --name AgnesAI` | Debugging via Console-Logs; Release später `--windowed` |
+| **PyInstaller** | `--onefile --windowed` für Release, `--console` nur für Debug-Builds | Sauberes Desktop-App-Fenster ohne Konsolen-Overlay; Logs gehen nach `agnes.log` |
 | **Hidden Imports** | Alle Backend-Module + `tkinter` + `webview` + `webview.platforms.edgechromium` | PyInstaller findet WebView2-Backend nicht automatisch |
 | **Requirements** | `pywebview>=5.0` zu `backend/requirements.txt` | WebView2 auf Windows |
 | **Release Workflow** | Parallel: `build` (ubuntu) + `build-exe` (windows-latest) | Schnelle CI, parallele Artefakte |
