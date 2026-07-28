@@ -12,8 +12,11 @@ Features:
 import sys
 import os
 import json
+import logging
 import threading
 import time
+import urllib.request
+import urllib.error
 import tkinter as tk
 from tkinter import messagebox
 import uvicorn
@@ -21,9 +24,26 @@ import webview
 
 
 if hasattr(sys, '_MEIPASS'):
-    sys.path.insert(0, os.path.join(sys._MEIPASS, "backend"))
+    sys.path.insert(0, sys._MEIPASS)
 
 CONFIG_FILE = "config.json"
+LOG_FILE = "agnes.log"
+
+
+def setup_logging():
+    """Loggt in Datei neben der .exe (oder CWD)."""
+    if getattr(sys, 'frozen', False):
+        log_dir = os.path.dirname(sys.executable)
+    else:
+        log_dir = os.getcwd()
+    log_path = os.path.join(log_dir, LOG_FILE)
+    logging.basicConfig(
+        filename=log_path,
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        force=True,
+    )
+    logging.info("=== Agnes AI Launcher gestartet ===")
 
 
 def get_config_path() -> str:
@@ -94,16 +114,38 @@ def show_key_dialog() -> str | None:
 
 def run_server():
     """Startet uvicorn (blockiert bis Programmende)."""
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=8000,
-        log_level="info",
-        access_log=False,
-    )
+    try:
+        uvicorn.run(
+            "app.main:app",
+            host="0.0.0.0",
+            port=8000,
+            log_level="info",
+            access_log=False,
+        )
+    except Exception:
+        logging.exception("Server abgestürzt")
+
+
+def wait_for_server(url: str, timeout: float = 15.0, interval: float = 0.3) -> bool:
+    """Wartet bis der Server antwortet. Gibt True zurück wenn ready."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            resp = urllib.request.urlopen(url, timeout=2)
+            if resp.status == 200:
+                logging.info("Server ist bereit (%s)", url)
+                return True
+        except (urllib.error.URLError, ConnectionError, OSError):
+            pass
+        time.sleep(interval)
+    logging.error("Server wurde nicht rechtzeitig bereit (%ds)", timeout)
+    return False
 
 
 def main():
+    # Logging initialisieren
+    setup_logging()
+
     # 1. Key laden (Env > config.json)
     api_key = os.environ.get("AGNES_API_KEY") or load_key()
 
@@ -111,15 +153,22 @@ def main():
     if not api_key:
         api_key = show_key_dialog()
         if not api_key:
+            logging.info("User hat Abbrechen geklickt")
             return  # User hat Abbrechen geklickt
 
     # 3. Server im Hintergrund starten
-    print("[INFO] Starte Agnes AI Server auf http://localhost:8000")
+    logging.info("Starte Agnes AI Server auf http://localhost:8000")
     server_thread = threading.Thread(target=run_server, daemon=True)
     server_thread.start()
 
-    # 4. Warten bis Server ready
-    time.sleep(1.5)
+    # 4. Warten bis Server ready (poll HTTP, max 15s)
+    if not wait_for_server("http://localhost:8000"):
+        messagebox.showerror(
+            "Server Error",
+            "Der Backend-Server konnte nicht gestartet werden.\n"
+            "Bitte prüfe die Logdatei 'agnes.log' und starte die App neu.",
+        )
+        return
 
     # 5. WebView2-Fenster erstellen und UI laden
     window = webview.create_window(
