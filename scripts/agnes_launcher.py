@@ -157,12 +157,16 @@ def main():
             logging.info("User hat Abbrechen geklickt")
             return  # User hat Abbrechen geklickt
 
-    # 3. Server im Hintergrund starten
+    # 3. Env-Vars immer setzen (auch wenn aus config.json geladen)
+    os.environ["AGNES_API_KEY"] = api_key
+    os.environ["OPENAI_API_KEY"] = api_key
+
+    # 4. Server im Hintergrund starten
     logging.info("Starte Agnes AI Server auf http://localhost:8000")
     server_thread = threading.Thread(target=run_server, daemon=True)
     server_thread.start()
 
-    # 4. Warten bis Server ready (poll HTTP, max 15s)
+    # 5. Warten bis Server ready (poll HTTP, max 15s)
     if not wait_for_server("http://localhost:8000"):
         messagebox.showerror(
             "Server Error",
@@ -171,7 +175,7 @@ def main():
         )
         return
 
-    # 5. WebView2-Fenster erstellen und UI laden
+    # 6. WebView2-Fenster erstellen und UI laden
     window = webview.create_window(
         "Agnes AI — Edit Image",
         "http://localhost:8000",
