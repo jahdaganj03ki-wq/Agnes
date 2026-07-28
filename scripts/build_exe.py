@@ -57,9 +57,11 @@ def run_pyinstaller():
         "--hidden-import", "uvicorn.lifespan.on",
         "--hidden-import", "starlette.middleware.cors",
         "--hidden-import", "starlette",
-        # Pydantic v2
+        # Pydantic v2 + settings
         "--hidden-import", "pydantic",
         "--hidden-import", "pydantic_core",
+        "--hidden-import", "pydantic_settings",
+        "--collect-all", "pydantic_settings",
         # OpenAI SDK
         "--hidden-import", "openai",
         "--hidden-import", "httpx",
